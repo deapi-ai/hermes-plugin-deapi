@@ -1,7 +1,0 @@
-name: deapi
-version: 0.1.0
-description: "deAPI video generation backend (LTX text-to-video and image-to-video via api.deapi.ai v2)."
-author: deapi-ai
-kind: backend
-requires_env:
-  - DEAPI_API_KEY

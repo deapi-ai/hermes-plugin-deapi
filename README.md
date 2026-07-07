@@ -16,20 +16,29 @@ for third-party product integrations.
 
 ## Install
 
+This repo bundles **two** plugins — `deapi-image` and `deapi-video`. Install
+each one (both share the same `DEAPI_API_KEY`):
+
 ```bash
-hermes plugins install deapi-ai/hermes-plugin-deapi --enable
+hermes plugins install deapi-ai/hermes-plugin-deapi/deapi-image --enable
+hermes plugins install deapi-ai/hermes-plugin-deapi/deapi-video --enable
 ```
 
-Or manually:
+Or manually (equivalent):
 
 ```bash
 git clone https://github.com/deapi-ai/hermes-plugin-deapi.git /tmp/hpd
-mkdir -p ~/.hermes/plugins/image_gen ~/.hermes/plugins/video_gen
-cp -r /tmp/hpd/image_gen/deapi ~/.hermes/plugins/image_gen/deapi
-cp -r /tmp/hpd/video_gen/deapi ~/.hermes/plugins/video_gen/deapi
-hermes plugins enable image_gen/deapi
-hermes plugins enable video_gen/deapi
+mkdir -p ~/.hermes/plugins
+cp -r /tmp/hpd/deapi-image ~/.hermes/plugins/deapi-image
+cp -r /tmp/hpd/deapi-video ~/.hermes/plugins/deapi-video
+hermes plugins enable deapi-image
+hermes plugins enable deapi-video
 ```
+
+> Note: `hermes plugins install deapi-ai/hermes-plugin-deapi` (repo root,
+> no subdirectory) does **not** work — the repo root is not itself a plugin.
+> Install the two subdirectories above. Each registers a provider named
+> `deapi` in the image / video registry respectively.
 
 ## Configure
 

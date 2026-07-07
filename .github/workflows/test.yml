@@ -1,0 +1,18 @@
+name: test
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m compileall -q deapi-image deapi-video
+      - run: pip install pytest
+      - run: python -m pytest -q
+      - name: secret scan
+        run: |
+          ! grep -rEn 'dpn-sk-[0-9]+\||sk-[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9]{36}|AKIA[0-9A-Z]{16}' \
+            --include='*.py' --include='*.md' --include='*.yaml' . \
+            | grep -v 'your-key-here\|dpn-sk-your\|dpn-sk-...'

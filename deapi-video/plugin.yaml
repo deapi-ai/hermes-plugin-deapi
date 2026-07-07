@@ -1,0 +1,10 @@
+name: deapi-video
+version: 0.2.0
+description: "deAPI video generation backend (LTX text-to-video and image-to-video via native api.deapi.ai v2; live model discovery)."
+author: deapi-ai
+kind: backend
+requires_env:
+  - name: DEAPI_API_KEY
+    description: "deAPI API key (free $5 credit)"
+    url: "https://app.deapi.ai"
+    secret: true
