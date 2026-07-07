@@ -1,0 +1,7 @@
+name: deapi
+version: 0.1.0
+description: "deAPI image generation backend (FLUX.2 Klein and other open-source models via api.deapi.ai v2)."
+author: deapi-ai
+kind: backend
+requires_env:
+  - DEAPI_API_KEY
