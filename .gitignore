@@ -1,10 +1,4 @@
 __pycache__/
 *.pyc
-.env
-.env.*
-.venv/
 .pytest_cache/
-dist/
-build/
-*.log
-.DS_Store
+.ruff_cache/

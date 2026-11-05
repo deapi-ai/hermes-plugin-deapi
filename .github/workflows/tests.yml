@@ -1,0 +1,45 @@
+name: tests
+
+# Unit tests, lint and Hermes's own catalog check (`hermes plugins validate`) against the
+# current Hermes Agent main, on every push and pull request and once a week.
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "17 5 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: plugin
+          persist-credentials: false
+      - uses: actions/checkout@v5
+        with:
+          repository: NousResearch/hermes-agent
+          path: hermes-agent
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - name: Install Hermes Agent from its lockfile
+        working-directory: hermes-agent
+        run: |
+          pip install uv==0.13.5
+          uv sync --frozen --group dev
+      - name: Unit tests
+        working-directory: plugin
+        env:
+          HERMES_AGENT_DIR: ${{ github.workspace }}/hermes-agent
+        run: ../hermes-agent/.venv/bin/python -m pytest -q
+      - name: Lint
+        working-directory: plugin
+        run: ../hermes-agent/.venv/bin/ruff check .
+      - name: Hermes catalog validation
+        run: hermes-agent/.venv/bin/hermes plugins validate plugin --install-deps

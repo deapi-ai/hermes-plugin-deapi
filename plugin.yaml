@@ -1,0 +1,12 @@
+name: deapi
+version: 0.3.0
+description: "deAPI image and video generation backends for image_generate / video_generate: text-to-image, image editing, text-to-video and image-to-video on deAPI's native API, with models from the key's live catalog."
+author: deAPI
+kind: backend
+license: MIT
+requires_hermes: ">=0.22.0"
+requires_env:
+  - name: DEAPI_API_KEY
+    description: "deAPI API key"
+    url: "https://deapi.ai/settings/api-keys"
+    secret: true

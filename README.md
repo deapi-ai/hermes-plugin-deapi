@@ -1,111 +1,146 @@
-# hermes-plugin-deapi
+# deAPI for Hermes Agent
 
-[deAPI](https://deapi.ai) image & video generation backends for
-[Hermes Agent](https://github.com/NousResearch/hermes-agent) — cheap, hosted
-open-source models as a drop-in alternative to FAL.
+Image and video generation backends for [Hermes Agent](https://github.com/NousResearch/hermes-agent)
+on [deAPI](https://deapi.ai), a GPU inference API for open models (FLUX.2 Klein, Z-Image,
+Qwen Image Edit, LTX-2.5, …) plus partner-served ones.
 
-- **Image**: FLUX.2 Klein from **~$0.002/image** (512px), FLUX.1 schnell,
-  Z-Image Turbo and more — auto-discovered live, nothing hardcoded
-- **Video**: LTX family text-to-video **and** image-to-video from ~$0.002/clip
-- Free **$5 signup credit** at [app.deapi.ai](https://app.deapi.ai), no card required
-- Pure-Python stdlib, zero dependencies, zero Hermes core changes
+One plugin, two backends, both named `deapi`:
 
-Ships as a standalone plugin repo per the Hermes
-[contributing policy](https://github.com/NousResearch/hermes-agent/blob/main/CONTRIBUTING.md)
-for third-party product integrations.
+| Hermes tool | What it does | deAPI endpoint |
+|---|---|---|
+| `image_generate` | text-to-image | `POST /api/v2/images/generations` |
+| `image_generate` with `image_url` | image editing (the image and any references are uploaded) | `POST /api/v2/images/edits` |
+| `video_generate` | text-to-video | `POST /api/v2/videos/generations` |
+| `video_generate` with `image_url` | image-to-video (the image is the first frame) | `POST /api/v2/videos/animations` |
+
+Every deAPI generation is an asynchronous job: the plugin submits it, polls
+`GET /api/v2/jobs/{request_id}` until it is done, then saves the result under
+`$HERMES_HOME/cache/generated/` with Hermes's own helpers (result URLs expire).
 
 ## Install
 
-This repo bundles **two** plugins — `deapi-image` and `deapi-video`. Install
-each one (both share the same `DEAPI_API_KEY`):
+> Upgrading from 0.2? The old `deapi-image` and `deapi-video` plugins are now one plugin,
+> `deapi`. Remove the old ones first: `hermes plugins remove deapi-image` and
+> `hermes plugins remove deapi-video`.
 
 ```bash
-hermes plugins install deapi-ai/hermes-plugin-deapi/deapi-image --enable
-hermes plugins install deapi-ai/hermes-plugin-deapi/deapi-video --enable
+hermes plugins install deapi        # from the plugin catalog
+# or: hermes plugins install deapi-ai/hermes-plugin-deapi
+hermes plugins enable deapi
 ```
 
-Or manually (equivalent):
+Create an API key at [deapi.ai/settings/api-keys](https://deapi.ai/settings/api-keys) and give it to Hermes as
+`DEAPI_API_KEY` (the install prompt asks for it, or add it to the `.env` of your Hermes home).
+Then pick the backend:
 
 ```bash
-git clone https://github.com/deapi-ai/hermes-plugin-deapi.git /tmp/hpd
-mkdir -p ~/.hermes/plugins
-cp -r /tmp/hpd/deapi-image ~/.hermes/plugins/deapi-image
-cp -r /tmp/hpd/deapi-video ~/.hermes/plugins/deapi-video
-hermes plugins enable deapi-image
-hermes plugins enable deapi-video
+hermes tools    # Image Generation → deAPI, Video Generation → deAPI
 ```
 
-> Note: `hermes plugins install deapi-ai/hermes-plugin-deapi` (repo root,
-> no subdirectory) does **not** work — the repo root is not itself a plugin.
-> Install the two subdirectories above. Each registers a provider named
-> `deapi` in the image / video registry respectively.
+or in `config.yaml`:
 
-## Configure
+```yaml
+image_gen:
+  provider: deapi
+video_gen:
+  provider: deapi
+```
 
-1. Get an API key at [app.deapi.ai](https://app.deapi.ai) and put it in
-   `~/.hermes/.env`:
+## Models
 
-   ```
-   DEAPI_API_KEY=your-key-here
-   ```
+Models come from `GET /api/v2/models` for your key, so the list always matches your plan and
+new models show up without an update. The picker in `hermes tools` shows them; own-fleet models
+are listed first, partner-served models (billed at the partner's price) after.
 
-   (Both the raw panel format `12345|...` and the `dpn-sk-`-prefixed form work.)
+Which model a call uses:
 
-2. Select deAPI as the backend — either via `hermes tools` → Image/Video
-   Generation (deAPI appears in the picker automatically), or directly in
-   `~/.hermes/config.yaml`:
+- **Image**: `image_gen.model` when it is a deAPI model id → `image_gen.deapi.model` → the
+  first own-fleet text-to-image model matching FLUX.2 Klein, then FLUX. An edit request with a
+  text-only model uses an editing model from the catalog instead and says so in the result's
+  `note`.
+- **Video**: `video_gen.model` → `video_gen.deapi.model` → the first own-fleet LTX model.
 
-   ```yaml
-   image_gen:
-     provider: deapi
-     # model: Flux_2_Klein_4B_BF16   # optional; default = best live Klein/FLUX
-   video_gen:
-     provider: deapi
-     # model: Ltxv_13B_0_9_8_Distilled_FP8
-   ```
+A model id that is not in your catalog is never sent: the plugin falls back to the automatic
+choice and explains it in `note`.
 
-3. Start a new Hermes session and ask: *"generate an image of a red fox in
-   snow"* or *"animate this photo"*.
+```yaml
+image_gen:
+  provider: deapi
+  deapi:
+    model: Flux1schnell   # optional; any id from `hermes tools` or GET /api/v2/models
+    timeout: 300          # optional, seconds to wait for a job (default 300)
+video_gen:
+  provider: deapi
+  deapi:
+    model: Ltx2_5_22B_Dist_INT8
+    timeout: 900          # default 900
+```
 
-Model overrides: `image_gen.model` / `video_gen.model` in config, or
-`DEAPI_IMAGE_MODEL` / `DEAPI_VIDEO_MODEL` env vars. Available models are
-fetched live from `GET /api/v2/models` — run `hermes tools` to browse them.
+## How Hermes's options map to deAPI
 
-## Agent-pasteable install
+deAPI publishes per-model limits (sizes, size grid, pixel budget, frames, fps, steps) and
+defaults. The plugin derives every request from the selected model's card:
 
-Paste this to your Hermes (or any agent with a terminal):
+- **Image size**: `landscape` 3:2, `square` 1:1, `portrait` 2:3 at the model's default long
+  side, scaled into its limits and snapped to its size grid.
+- **Video size**: the requested aspect ratio with the requested resolution as the short side
+  (`720p` 16:9 → 1280×720), scaled down to the model's pixel budget and snapped to its grid.
+- **Duration**: frames = seconds × the model's fps, clamped to the model's frame range.
+  Without a duration the model's default clip length is used.
+- **Steps**: the model's default where the model takes steps. A seed is always sent (random
+  unless you give one) and is returned in the result.
+- **Negative prompt** (video): sent only to models that support it.
 
-> Install the deAPI image/video plugin for Hermes: clone
-> https://github.com/deapi-ai/hermes-plugin-deapi.git, copy image_gen/deapi to
-> ~/.hermes/plugins/image_gen/deapi and video_gen/deapi to
-> ~/.hermes/plugins/video_gen/deapi, run `hermes plugins enable image_gen/deapi`
-> and `hermes plugins enable video_gen/deapi`, add `image_gen.provider: deapi`
-> and `video_gen.provider: deapi` to ~/.hermes/config.yaml, and make sure
-> DEAPI_API_KEY is set in ~/.hermes/.env.
+Successful results include `request_id`, the size used, and `cost_usd` (with
+`cost_is_estimate`) as reported by deAPI for that job.
 
-## How it works
+## Errors
 
-Both providers call the native deAPI v2 REST API (`api.deapi.ai`): submit a
-job, poll `GET /api/v2/jobs/{id}`, download the result into Hermes' local
-cache (`~/.hermes/cache/images|videos/`) — result URLs expire after ~24 h, so
-files are persisted immediately. Model parameters (steps, guidance, fps,
-frame limits) come from each model's live metadata, never hardcoded.
+Errors come back as Hermes tool errors with an `error_type`: `auth_error`, `insufficient_balance`,
+`key_limit_exceeded`, `rate_limited`, `invalid_request` (with deAPI's field messages),
+`job_failed` (with deAPI's failure reason, whether a retry may help and whether the charge was
+refunded), `timeout` and `unknown_state`.
 
-## Pricing (approx., pay-per-use)
+A submit is never sent twice. Only a `429`, which deAPI returns before it accepts a job, is
+retried. If the connection drops after a submit, or a job outlives the timeout, the error says
+so and gives the `request_id`: the job may still run and be billed, so check the dashboard
+before trying again.
 
-| Task | Model | Cost |
-|---|---|---|
-| Image 512×512 | FLUX.2 Klein | ~$0.0019 |
-| Image 1024×1024 | FLUX.2 Klein | ~$0.0074 |
-| Video 2 s / 480p | LTX | ~$0.002+ |
+## What this plugin does on your machine
 
-Exact prices: `POST /api/v2/<endpoint>/price` or [deapi.ai/pricing](https://deapi.ai/pricing).
+- **Network**: prompts, source images and the API key go to `api.deapi.ai` only. Image URLs
+  you pass as sources are downloaded by the plugin through Hermes's SSRF-guarded client, because
+  deAPI takes source images as uploads. Result files are downloaded from deAPI's result URLs.
+- **Reads**: only local image files you pass as sources. A file is read in full only when its
+  header is a PNG, JPEG, GIF, BMP or WebP image header, so no other kind of file can be uploaded.
+- **Writes**: generated media under `$HERMES_HOME/cache/generated/` through Hermes's helpers.
+  The model catalog is cached in memory only (10 minutes, keyed by a hash of the key).
+- **Credentials**: `DEAPI_API_KEY`, read with `agent.secret_scope.get_secret`; never logged or
+  put in error messages.
+- **Cost**: every generation is billed to your deAPI account.
+- No telemetry, shell commands, background processes, extra Python dependencies or
+  self-updating code.
 
-## Related
+## Why the native API
 
-- deAPI Agent Skill (portable, agentskills.io): https://github.com/deapi-ai/skills
-- deAPI MCP server: https://github.com/deapi-ai/mcp-server-deapi
-- deAPI docs: https://docs.deapi.ai
+deAPI also has an OpenAI-compatible API, but the native API v2 fits Hermes's backends better:
+its model list carries each model's limits and defaults (so sizes and clip lengths can be fitted
+per model), it lists every model on the plan including partner-served ones, it reports the
+price and failure reason of each job, and image-to-video takes the first frame directly.
+
+## Development
+
+The tests need a Hermes Agent checkout (the providers subclass its ABCs) and use a fake HTTP
+layer; nothing touches the network.
+
+```bash
+HERMES_AGENT_DIR=/path/to/hermes-agent python -m pytest
+ruff check .
+hermes plugins validate . --install-deps
+```
+
+CI (`.github/workflows/tests.yml`) runs the same three steps against the current Hermes Agent
+`main` on every push and pull request, and weekly. Security reports: see `SECURITY.md`.
 
 ## License
 
