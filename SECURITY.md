@@ -6,4 +6,4 @@ and steps to reproduce.
 
 The plugin handles one secret, `DEAPI_API_KEY`. It is read through Hermes's profile-scoped secret
 store, sent only to `api.deapi.ai`, and never logged or included in error messages. If you think a
-key has leaked, revoke it at https://deapi.ai/settings/api-keys.
+key has leaked, revoke it at https://app.deapi.ai/settings/api-keys.

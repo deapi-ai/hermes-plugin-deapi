@@ -25,8 +25,10 @@ logger = logging.getLogger(__name__)
 
 API_BASE = "https://api.deapi.ai/api/v2"
 KEY_ENV = "DEAPI_API_KEY"
-KEY_URL = "https://deapi.ai/settings/api-keys"
-USER_AGENT = "hermes-plugin-deapi/0.3.0"
+KEY_URL = "https://app.deapi.ai/settings/api-keys"
+BILLING_URL = "https://app.deapi.ai/billing"
+DASHBOARD_URL = "https://app.deapi.ai/dashboard"
+USER_AGENT = "hermes-plugin-deapi/0.3.1"
 
 HTTP_TIMEOUT = (10, 60)  # (connect, read) for submits; deAPI answers a submit in well under a second
 POLL_HTTP_TIMEOUT = (10, 30)
@@ -112,7 +114,7 @@ def error_from_response(resp: Any, request_id: Optional[str] = None) -> DeapiErr
     if status == 402 or code == "key_limit_exceeded":
         return err(f"This deAPI key has reached its own spend limit: {text}", "key_limit_exceeded")
     if code == "insufficient_balance":
-        return err(f"The deAPI account balance is too low for this request. Top up at {KEY_URL}.",
+        return err(f"The deAPI account balance is too low for this request. Top up at {BILLING_URL}.",
                    "insufficient_balance")
     if status == 429:
         kind = _header(resp, "X-RateLimit-Type")
@@ -251,12 +253,12 @@ def submit(key: str, path: str, *, json_body: Optional[dict[str, Any]] = None,
                                  "connection_error") from None
             raise DeapiError(
                 "The connection to deAPI dropped while submitting; the job may have been accepted. "
-                f"Check the dashboard at {KEY_URL} before retrying so it is not paid twice.",
+                f"Check the dashboard at {DASHBOARD_URL} before retrying so it is not paid twice.",
                 "unknown_state") from None
         except requests.Timeout:
             raise DeapiError(
                 "deAPI did not answer the submit in time; the job may have been accepted. "
-                f"Check the dashboard at {KEY_URL} before retrying so it is not paid twice.",
+                f"Check the dashboard at {DASHBOARD_URL} before retrying so it is not paid twice.",
                 "unknown_state") from None
         if resp.status_code == 429 and attempt < SUBMIT_429_RETRIES:
             kind = _header(resp, "X-RateLimit-Type").lower()
@@ -267,7 +269,7 @@ def submit(key: str, path: str, *, json_body: Optional[dict[str, Any]] = None,
         if resp.status_code >= 500:
             raise DeapiError(
                 f"deAPI returned {resp.status_code} while submitting; the job may have been accepted. "
-                f"Check the dashboard at {KEY_URL} before retrying.", "unknown_state",
+                f"Check the dashboard at {DASHBOARD_URL} before retrying.", "unknown_state",
                 status=resp.status_code)
         if resp.status_code >= 400:
             raise error_from_response(resp)

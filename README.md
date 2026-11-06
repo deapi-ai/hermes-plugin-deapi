@@ -29,7 +29,7 @@ hermes plugins install deapi        # from the plugin catalog
 hermes plugins enable deapi
 ```
 
-Create an API key at [deapi.ai/settings/api-keys](https://deapi.ai/settings/api-keys) and give it to Hermes as
+Create an API key at [app.deapi.ai/settings/api-keys](https://app.deapi.ai/settings/api-keys) and give it to Hermes as
 `DEAPI_API_KEY` (the install prompt asks for it, or add it to the `.env` of your Hermes home).
 Then pick the backend:
 
