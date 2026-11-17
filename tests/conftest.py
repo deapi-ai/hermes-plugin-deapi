@@ -39,6 +39,8 @@ cards = importlib.import_module(f"{PACKAGE}.cards")
 settings = importlib.import_module(f"{PACKAGE}.settings")
 image_provider = importlib.import_module(f"{PACKAGE}.image_provider")
 video_provider = importlib.import_module(f"{PACKAGE}.video_provider")
+speech_provider = importlib.import_module(f"{PACKAGE}.speech_provider")
+stt_provider = importlib.import_module(f"{PACKAGE}.stt_provider")
 
 from samples import CATALOG  # noqa: E402
 
@@ -127,7 +129,7 @@ def http(monkeypatch) -> FakeHTTP:
 
 @pytest.fixture
 def config(monkeypatch) -> Callable[[dict], None]:
-    """Set the ``image_gen`` / ``video_gen`` sections of config.yaml for one test."""
+    """Set the ``image_gen`` / ``video_gen`` / ``tts`` / ``stt`` sections of config.yaml for one test."""
     def apply(sections: dict) -> None:
         monkeypatch.setattr(settings, "load_section", lambda kind: sections.get(kind, {}))
     return apply
@@ -145,3 +147,21 @@ def saved(monkeypatch, tmp_path):
     monkeypatch.setattr(image_provider, "save_url_image", fake_save)
     monkeypatch.setattr(video_provider, "save_url_video", fake_save)
     return calls
+
+
+@pytest.fixture
+def downloads(monkeypatch):
+    """Serve ``client.download_result`` from a dict of URL → bytes; returns the requested URLs."""
+    served: dict[str, bytes] = {}
+    calls: list[tuple[str, int]] = []
+
+    def fake_download(url: str, *, max_bytes: int = client.MAX_RESULT_BYTES, label: str = "result") -> bytes:
+        calls.append((url, max_bytes))
+        if url not in served:
+            raise client.DeapiError(f"Could not download the deAPI {label} (HTTPStatusError).", "download_failed")
+        return served[url]
+
+    monkeypatch.setattr(client, "download_result", fake_download)
+    fake_download.served = served  # type: ignore[attr-defined]
+    fake_download.calls = calls  # type: ignore[attr-defined]
+    return fake_download

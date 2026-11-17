@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.0
+
+- `text_to_speech` backend (`tts.provider: deapi`): speech with the preset voices of the key's
+  speech models (Kokoro by default, Chatterbox, Qwen3-TTS CustomVoice), voices by id or name,
+  language from the voice or `tts.deapi.language`, speed clamped to the model, the model's text
+  limits checked before submitting. Output is MP3; Hermes converts it for voice bubbles.
+- Speech-to-text backend (`stt.provider: deapi`): voice messages and voice-mode recordings on
+  `POST /api/v2/audio/transcriptions`, Whisper Large V3 CT2 by default, with Hermes's language
+  hint.
+- Speech results are downloaded through Hermes's SSRF-guarded client.
+- Still requires Hermes Agent 0.22.0 or newer.
+
 ## 0.3.1
 
 - Fixed the links in setup prompts and error messages: API keys at

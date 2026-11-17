@@ -22,6 +22,9 @@ PREFERENCES: dict[str, tuple[str, ...]] = {
     "img2img": (r"klein", r"qwen"),
     "txt2video": (r"ltx2_5", r"ltx2", r"ltx"),
     "img2video": (r"ltx2_5", r"ltx2", r"ltx"),
+    "txt2audio": (r"kokoro",),
+    # WhisperLargeV3 ignores the language hint; the CT2 build honors it.
+    "audio_file2text": (r"whisper.*ct2", r"whisper"),
 }
 
 
@@ -44,6 +47,11 @@ def default(model: Optional[dict[str, Any]], name: str, fallback: Any = None) ->
 def feature(model: Optional[dict[str, Any]], name: str) -> bool:
     """True only when the card says the feature is supported."""
     return _section(model, "features").get(name) is True
+
+
+def flag(model: Optional[dict[str, Any]], name: str) -> Any:
+    """The raw ``info.features.<name>`` value (True, False or None when the card does not say)."""
+    return _section(model, "features").get(name)
 
 
 def pinned(model: Optional[dict[str, Any]], name: str) -> Any:
@@ -211,6 +219,21 @@ def as_form(body: dict[str, Any]) -> dict[str, str]:
 def display_name(model: dict[str, Any]) -> str:
     name = model.get("name")
     return name if isinstance(name, str) and name.strip() else str(model.get("slug"))
+
+
+def languages(model: Optional[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The card's ``languages`` (TTS models): ``[{"name", "slug", "voices": [{"name", "slug", "gender"}]}]``."""
+    value = (model or {}).get("languages")
+    if not isinstance(value, list):
+        return []
+    return [lang for lang in value if isinstance(lang, dict) and isinstance(lang.get("slug"), str)]
+
+
+def voices(language: dict[str, Any]) -> list[dict[str, Any]]:
+    value = language.get("voices")
+    if not isinstance(value, list):
+        return []
+    return [v for v in value if isinstance(v, dict) and isinstance(v.get("slug"), str)]
 
 
 def sort_rows(models: list[dict[str, Any]]) -> list[dict[str, Any]]:

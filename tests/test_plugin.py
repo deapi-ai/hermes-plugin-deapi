@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from conftest import (
-    CATALOG, FakeResponse, catalog_page, client, image_provider, plugin, video_provider)
+    CATALOG, FakeResponse, catalog_page, client, image_provider, plugin, speech_provider, stt_provider,
+    video_provider)
 
 
 class FakeCtx:
     def __init__(self) -> None:
-        self.images, self.videos = [], []
+        self.images, self.videos, self.speech, self.stt = [], [], [], []
 
     def register_image_gen_provider(self, provider) -> None:
         self.images.append(provider)
@@ -16,26 +17,47 @@ class FakeCtx:
     def register_video_gen_provider(self, provider) -> None:
         self.videos.append(provider)
 
+    def register_tts_provider(self, provider) -> None:
+        self.speech.append(provider)
 
-def test_register_registers_both_backends():
+    def register_transcription_provider(self, provider) -> None:
+        self.stt.append(provider)
+
+
+def all_providers():
+    return (image_provider.DeapiImageGenProvider(), video_provider.DeapiVideoGenProvider(),
+            speech_provider.DeapiTTSProvider(), stt_provider.DeapiTranscriptionProvider())
+
+
+def test_register_registers_all_four_backends():
     ctx = FakeCtx()
     plugin.register(ctx)
     assert [type(p).__name__ for p in ctx.images] == ["DeapiImageGenProvider"]
     assert [type(p).__name__ for p in ctx.videos] == ["DeapiVideoGenProvider"]
-    assert ctx.images[0].name == ctx.videos[0].name == "deapi"
-    assert ctx.images[0].display_name == "deAPI"
+    assert [type(p).__name__ for p in ctx.speech] == ["DeapiTTSProvider"]
+    assert [type(p).__name__ for p in ctx.stt] == ["DeapiTranscriptionProvider"]
+    providers = ctx.images + ctx.videos + ctx.speech + ctx.stt
+    assert {p.name for p in providers} == {"deapi"}
+    assert {p.display_name for p in providers} == {"deAPI"}
+
+
+def test_providers_subclass_the_hermes_abcs():
+    from agent.transcription_provider import TranscriptionProvider
+    from agent.tts_provider import TTSProvider
+    assert isinstance(speech_provider.DeapiTTSProvider(), TTSProvider)
+    assert isinstance(stt_provider.DeapiTranscriptionProvider(), TranscriptionProvider)
 
 
 def test_is_available_follows_the_key_and_never_hits_the_network(http, monkeypatch):
-    image, video = image_provider.DeapiImageGenProvider(), video_provider.DeapiVideoGenProvider()
-    assert image.is_available() and video.is_available()
+    providers = all_providers()
+    assert all(p.is_available() for p in providers)
     monkeypatch.delenv("DEAPI_API_KEY")
-    assert not image.is_available() and not video.is_available()
+    assert not any(p.is_available() for p in providers)
     assert http.calls == []
 
 
 def test_setup_schema_asks_for_one_key():
-    for provider in (image_provider.DeapiImageGenProvider(), video_provider.DeapiVideoGenProvider()):
+    for provider in all_providers():
         schema = provider.get_setup_schema()
         assert schema["badge"] == "paid"
         assert [e["key"] for e in schema["env_vars"]] == ["DEAPI_API_KEY"]

@@ -1,4 +1,5 @@
-"""Non-secret settings from config.yaml: ``image_gen.deapi.*`` and ``video_gen.deapi.*``.
+"""Non-secret settings from config.yaml: ``image_gen.deapi.*``, ``video_gen.deapi.*``, ``tts.deapi.*``
+and ``stt.deapi.*``.
 
 Only the API key lives in the environment (``DEAPI_API_KEY``); model and timeout are config keys.
 """
@@ -12,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 def load_section(kind: str) -> dict[str, Any]:
-    """``<kind>`` (``image_gen`` / ``video_gen``) top-level section, ``{}`` on any failure."""
+    """``<kind>`` (``image_gen`` / ``video_gen`` / ``tts`` / ``stt``) top-level section, ``{}`` on any failure."""
     try:
         from hermes_cli.config import load_config
 
@@ -31,6 +32,11 @@ def deapi_section(kind: str) -> dict[str, Any]:
 
 def configured_model(kind: str) -> Optional[str]:
     value = deapi_section(kind).get("model")
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def configured_text(kind: str, name: str) -> Optional[str]:
+    value = deapi_section(kind).get(name)
     return value.strip() if isinstance(value, str) and value.strip() else None
 
 

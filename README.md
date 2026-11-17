@@ -1,10 +1,11 @@
 # deAPI for Hermes Agent
 
-Image and video generation backends for [Hermes Agent](https://github.com/NousResearch/hermes-agent)
-on [deAPI](https://deapi.ai), a GPU inference API for open models (FLUX.2 Klein, Z-Image,
-Qwen Image Edit, LTX-2.5, …) plus partner-served ones.
+Image, video, speech and transcription backends for
+[Hermes Agent](https://github.com/NousResearch/hermes-agent) on [deAPI](https://deapi.ai), a GPU
+inference API for open models (FLUX.2 Klein, Z-Image, Qwen Image Edit, LTX-2.5, Kokoro, Whisper,
+…) plus partner-served ones.
 
-One plugin, two backends, both named `deapi`:
+One plugin, four backends, all named `deapi`:
 
 | Hermes tool | What it does | deAPI endpoint |
 |---|---|---|
@@ -12,10 +13,13 @@ One plugin, two backends, both named `deapi`:
 | `image_generate` with `image_url` | image editing (the image and any references are uploaded) | `POST /api/v2/images/edits` |
 | `video_generate` | text-to-video | `POST /api/v2/videos/generations` |
 | `video_generate` with `image_url` | image-to-video (the image is the first frame) | `POST /api/v2/videos/animations` |
+| `text_to_speech` (`tts.provider: deapi`) | speech with preset voices | `POST /api/v2/audio/speech` |
+| speech-to-text (`stt.provider: deapi`) | transcription of voice messages and voice mode | `POST /api/v2/audio/transcriptions` |
 
 Every deAPI generation is an asynchronous job: the plugin submits it, polls
-`GET /api/v2/jobs/{request_id}` until it is done, then saves the result under
-`$HERMES_HOME/cache/generated/` with Hermes's own helpers (result URLs expire).
+`GET /api/v2/jobs/{request_id}` until it is done, then saves the result: images and videos under
+`$HERMES_HOME/cache/generated/` with Hermes's own helpers (result URLs expire), speech to the
+file Hermes asks for. A transcript comes back inside the job.
 
 ## Install
 
@@ -34,17 +38,24 @@ Create an API key at [app.deapi.ai/settings/api-keys](https://app.deapi.ai/setti
 Then pick the backend:
 
 ```bash
-hermes tools    # Image Generation → deAPI, Video Generation → deAPI
+hermes tools    # Image Generation → deAPI, Video Generation → deAPI, Text-to-Speech → deAPI
 ```
 
-or in `config.yaml`:
+or in `config.yaml` (speech-to-text is set here):
 
 ```yaml
 image_gen:
   provider: deapi
 video_gen:
   provider: deapi
+tts:
+  provider: deapi
+stt:
+  provider: deapi
 ```
+
+Each backend is used only where you select it, so you can take, say, just speech-to-text from
+deAPI and keep your other providers.
 
 ## Models
 
@@ -76,7 +87,73 @@ video_gen:
     timeout: 900          # default 900
 ```
 
-## How Hermes's options map to deAPI
+## Speech (`text_to_speech`)
+
+The speech backend offers the models of your plan that have preset voices (Kokoro, Chatterbox,
+Qwen3-TTS CustomVoice, …). Voice cloning and voice design models are not offered, because Hermes
+passes no reference recording or voice description to a speech backend.
+
+- **Model**: `tts.model` when it is a deAPI model with preset voices → `tts.deapi.model` →
+  Kokoro, else the first own-fleet speech model.
+- **Voice**: `tts.voice` when the model has it → `tts.deapi.voice` → the model's default voice.
+  A voice can be given by id (`af_nova`, `bm_george`) or by name (`nova`, `George`), so OpenAI
+  voice names such as `nova`, `echo`, `onyx` and `fable` pick the matching Kokoro voice. A voice
+  the model does not have is skipped (Hermes logs it), not sent.
+- **Language**: the voice's own language (Kokoro `bf_*` voices speak British English), or
+  `tts.deapi.language` (a language id such as `en-gb` or `pl`, or its name) to choose it
+  yourself. The voices of each model and language are in `GET /api/v2/models`.
+- **Speed**: `tts.speed` or the `speed` the agent asks for, clamped to the model's range
+  (Kokoro 0.5–2; most other models speak at 1 only).
+- **Format**: deAPI models currently produce MP3. When `tts.output_format` asks for another
+  format, the file is written as `.mp3` and Hermes is given that path. For voice bubbles on
+  Telegram, WhatsApp, Signal and the like, Hermes converts the MP3 to Opus with `ffmpeg` (when it
+  is installed); set `tts.deapi.voice_compatible: false` to always send a regular audio file.
+- **Text length**: each model has a character limit per request (Kokoro 10,000, Qwen3-TTS 5,000,
+  Chatterbox 2,000). Hermes splits long replies into chunks of 4,000 characters for a plugin
+  backend; for a model with a lower limit set `tts.deapi.max_text_length` to it. Chatterbox and
+  Qwen3-TTS also need at least 10 characters.
+
+```yaml
+tts:
+  provider: deapi
+  voice: nova                 # optional; shared by all providers
+  speed: 1.0                  # optional
+  deapi:
+    model: Kokoro             # optional; any speech model id from `hermes tools`
+    voice: bf_emma            # optional; used when tts.voice is not a voice of the model
+    language: en-gb           # optional
+    timeout: 180              # optional, seconds to wait for a job (default 180)
+    # max_text_length: 2000   # for Chatterbox
+    # voice_compatible: false # send audio files instead of voice bubbles
+```
+
+Streaming speech (sentence-by-sentence PCM) is not offered: deAPI returns a finished file.
+
+## Transcription (speech-to-text)
+
+With `stt.provider: deapi`, Hermes sends voice messages and voice-mode recordings to deAPI and
+gets the text back. The default model is Whisper Large V3 CT2, which follows the language hint;
+Whisper Large V3 auto-detects the language and ignores the hint.
+
+- **Language**: `stt.deapi.language`, else `stt.language` (`en`, `pl`, `en-US` → `en`). Without
+  one, deAPI detects the language.
+- **Files**: the formats Hermes passes (OGG/Opus voice notes, MP3, WAV, WebM, FLAC, AAC, M4A,
+  MP4), up to 20 MB of audio (50 MB for MP4), uploaded once per recording.
+- **Vocabulary prompts** (`stt.prompt`) are not used: deAPI's transcription takes no prompt.
+- Silence gives an empty transcript, not an error.
+
+```yaml
+stt:
+  provider: deapi
+  deapi:
+    model: WhisperLargeV3Ct2  # optional (default)
+    language: pl              # optional
+    timeout: 300              # optional, seconds to wait for a job (default 300)
+```
+
+Live dictation (`stt.streaming`) is not offered; recordings are transcribed as files.
+
+## How Hermes's image and video options map to deAPI
 
 deAPI publishes per-model limits (sizes, size grid, pixel budget, frames, fps, steps) and
 defaults. The plugin derives every request from the selected model's card:
@@ -96,10 +173,11 @@ Successful results include `request_id`, the size used, and `cost_usd` (with
 
 ## Errors
 
-Errors come back as Hermes tool errors with an `error_type`: `auth_error`, `insufficient_balance`,
+Image, video and transcription errors come back with an `error_type`: `auth_error`, `insufficient_balance`,
 `key_limit_exceeded`, `rate_limited`, `invalid_request` (with deAPI's field messages),
 `job_failed` (with deAPI's failure reason, whether a retry may help and whether the charge was
-refunded), `timeout` and `unknown_state`.
+refunded), `timeout` and `unknown_state`. Speech errors are raised with the same messages, and
+Hermes reports them as a failed `text_to_speech` call.
 
 A submit is never sent twice. Only a `429`, which deAPI returns before it accepts a job, is
 retried. If the connection drops after a submit, or a job outlives the timeout, the error says
@@ -108,25 +186,31 @@ before trying again.
 
 ## What this plugin does on your machine
 
-- **Network**: prompts, source images and the API key go to `api.deapi.ai` only. Image URLs
-  you pass as sources are downloaded by the plugin through Hermes's SSRF-guarded client, because
-  deAPI takes source images as uploads. Result files are downloaded from deAPI's result URLs.
-- **Reads**: only local image files you pass as sources. A file is read in full only when its
-  header is a PNG, JPEG, GIF, BMP or WebP image header, so no other kind of file can be uploaded.
-- **Writes**: generated media under `$HERMES_HOME/cache/generated/` through Hermes's helpers.
-  The model catalog is cached in memory only (10 minutes, keyed by a hash of the key).
+- **Network**: prompts, source images, the text to speak, the recordings to transcribe and the
+  API key go to `api.deapi.ai` only. Image URLs you pass as sources are downloaded by the plugin
+  through Hermes's SSRF-guarded client, because deAPI takes source images as uploads. Result
+  files are downloaded from deAPI's result URLs without the key.
+- **Reads**: local image files you pass as sources (a file is read in full only when its header
+  is a PNG, JPEG, GIF, BMP or WebP image header, so no other kind of file can be uploaded), and the
+  audio file Hermes hands to the speech-to-text backend.
+- **Writes**: generated images and videos under `$HERMES_HOME/cache/generated/` through Hermes's
+  helpers, and speech to the output file Hermes chooses. The model catalog is cached in memory
+  only (10 minutes, keyed by a hash of the key).
 - **Credentials**: `DEAPI_API_KEY`, read with `agent.secret_scope.get_secret`; never logged or
   put in error messages.
-- **Cost**: every generation is billed to your deAPI account.
+- **Cost**: every generation, every spoken reply and every transcription is billed to your deAPI
+  account. With `tts.provider: deapi` each spoken reply is a paid request; with
+  `stt.provider: deapi`, each voice message is.
 - No telemetry, shell commands, background processes, extra Python dependencies or
   self-updating code.
 
 ## Why the native API
 
 deAPI also has an OpenAI-compatible API, but the native API v2 fits Hermes's backends better:
-its model list carries each model's limits and defaults (so sizes and clip lengths can be fitted
-per model), it lists every model on the plan including partner-served ones, it reports the
-price and failure reason of each job, and image-to-video takes the first frame directly.
+its model list carries each model's limits and defaults (so sizes, clip lengths, voices and text
+limits can be fitted per model), it lists every model on the plan including partner-served ones,
+it reports the price and failure reason of each job, and image-to-video takes the first frame
+directly.
 
 ## Development
 

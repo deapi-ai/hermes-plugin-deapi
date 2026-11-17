@@ -1,4 +1,4 @@
-"""deAPI HTTP layer: model catalog, job submission and job polling on the native API v2.
+"""deAPI HTTP layer: model catalog, job submission, job polling and result download on API v2.
 
 Every generation on deAPI is an asynchronous job: ``POST`` the task → ``request_id`` → poll
 ``GET /jobs/{request_id}`` until ``done`` (``result_url``) or ``error``. Nothing here logs or
@@ -28,12 +28,13 @@ KEY_ENV = "DEAPI_API_KEY"
 KEY_URL = "https://app.deapi.ai/settings/api-keys"
 BILLING_URL = "https://app.deapi.ai/billing"
 DASHBOARD_URL = "https://app.deapi.ai/dashboard"
-USER_AGENT = "hermes-plugin-deapi/0.3.1"
+USER_AGENT = "hermes-plugin-deapi/0.4.0"
 
 HTTP_TIMEOUT = (10, 60)  # (connect, read) for submits; deAPI answers a submit in well under a second
 POLL_HTTP_TIMEOUT = (10, 30)
 CATALOG_TTL_S = 600.0
-MAX_SOURCE_BYTES = 10 * 1024 * 1024  # deAPI's per-file upload cap
+MAX_SOURCE_BYTES = 10 * 1024 * 1024  # deAPI's per-file upload cap for images
+MAX_RESULT_BYTES = 100 * 1024 * 1024  # deAPI's cap on a job result
 SUBMIT_429_RETRIES = 2
 MAX_RETRY_AFTER_S = 10
 RETRYABLE_STATUSES = frozenset({408, 425, 429, 500, 502, 503, 504})
@@ -351,6 +352,42 @@ def job_cost(job: dict[str, Any]) -> dict[str, Any]:
     except (TypeError, ValueError):
         return {}
     return {"cost_usd": amount, "cost_is_estimate": bool(price.get("is_estimated"))}
+
+
+# --------------------------------------------------------------------------- results
+
+def download_result(url: str, *, max_bytes: int = MAX_RESULT_BYTES, label: str = "result") -> bytes:
+    """Download a job's ``result_url`` through Hermes's SSRF-guarded client, capped at ``max_bytes``.
+
+    Result URLs are pre-signed, so no credentials are sent with this request.
+    """
+    if not isinstance(url, str) or not url.lower().startswith(("https://", "http://")):
+        raise DeapiError(f"deAPI returned an invalid {label} URL.", "invalid_response")
+    try:
+        from tools.url_safety import create_ssrf_safe_client
+    except Exception:
+        raise DeapiError("This Hermes version has no SSRF-safe downloader.", "download_failed") from None
+    chunks, total = [], 0
+    try:
+        with create_ssrf_safe_client(timeout=60.0, follow_redirects=True,
+                                     headers={"User-Agent": USER_AGENT}) as http_client:
+            with http_client.stream("GET", url) as resp:
+                resp.raise_for_status()
+                for chunk in resp.iter_bytes():
+                    total += len(chunk)
+                    if total > max_bytes:
+                        raise DeapiError(f"The deAPI {label} is larger than {max_bytes // (1024 * 1024)} MB.",
+                                         "download_failed")
+                    chunks.append(chunk)
+    except DeapiError:
+        raise
+    except Exception as exc:
+        raise DeapiError(f"Could not download the deAPI {label} ({type(exc).__name__}).",
+                         "download_failed") from None
+    data = b"".join(chunks)
+    if not data:
+        raise DeapiError(f"The deAPI {label} is empty.", "empty_response")
+    return data
 
 
 # --------------------------------------------------------------------------- source images
