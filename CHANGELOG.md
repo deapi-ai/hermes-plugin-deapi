@@ -10,7 +10,9 @@
   `POST /api/v2/audio/transcriptions`, Whisper Large V3 CT2 by default, with Hermes's language
   hint.
 - Speech results are downloaded through Hermes's SSRF-guarded client.
-- Still requires Hermes Agent 0.22.0 or newer.
+- The development-only `pyproject.toml` is replaced by `ruff.toml` and `pytest.ini`: Hermes
+  0.22.x refused to enable a plugin whose `pyproject.toml` has no `[project]` table, so 0.3.x
+  could be installed there but not enabled. Requires Hermes Agent 0.22.0 or newer, as before.
 
 ## 0.3.1
 
